@@ -62,4 +62,4 @@ public:
 private:
     deque<Card> cardsInDeck;
     stack<Card> discardCards;
-}
+};
