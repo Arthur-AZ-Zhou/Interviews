@@ -19,22 +19,35 @@ public:
      * @return vector<int> IDs of rockets that can launch
      */
     vector<int> maximizeLaunches(vector<Rocket>& rockets, double totalFuel, double factor) {
-        vector<int> dp(totalFuel, 0);
+        vector<int> dp(totalFuel + 1, -1); //-1 is unreachable
+        vector<int> parent(totalFuel + 1, -1); //which rocket lead to dp[i]
+        vector<int> prevFuel(totalFuel + 1 , -1); //prev fuel state
+
+        dp[0] = 0;
 
         for (auto& r : rockets) {
             int minFuel = ceil(r.payloadWeight * factor);
 
-            if (r.capacity < minFuel) {
+            if (r.capacity < minFuel) { //rocket cannot launch
                 continue;
             }
 
             for (int i = totalFuel; minFuel <= i; i--) {
-                dp[i] = max(dp[i], dp[i - minFuel] + 1);
+                if (dp[i] < dp[i - minFuel] + 1) {
+                    dp[i] = dp[i - minFuel] + 1;
+                    parent[i] = r.id;
+                    prevFuel[i] = i - minFuel;
+                }
             }
         }
 
-        for (int i = 0; i < dp.size(); i++) {
+        int bestFuel = max_element(dp.begin(), dp.end()) - dp.begin();
 
+        vector<int> chosenRockets;
+        for (int i = bestFuel; 0 < i && parent[i] != -1; i = prevFuel[i]) {
+            chosenRockets.push_back(parent[i]);
         }
+
+        return chosenRockets;
     }
 };
