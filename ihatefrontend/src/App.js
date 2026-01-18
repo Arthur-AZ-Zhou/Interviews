@@ -1,4 +1,18 @@
 import React, { useState } from 'react';
+import './styles.css'; 
+
+// --- HELPER: Generate Data ---
+const generateData = () => {
+  const data = [];
+  for (let i = 0; i < 50; i++) {
+    data.push({
+      sym: `STK-${i + 100}`,
+      price: (Math.random() * 400 - 100).toFixed(2),
+      quantity: Math.floor(Math.random() * 500)
+    });
+  }
+  return data;
+};
 
 // --- CHILD COMPONENT ---
 function OrderBook({ orders = [] }) {
@@ -6,43 +20,43 @@ function OrderBook({ orders = [] }) {
     <div className="order-book">
       <h3>Live Orders</h3>
       
+      {/* Header */}
       <div className="header-row">
-        <span style={{ width: 100 }}>Symbol</span>
-        <span style={{ width: 100 }}>Price</span>
-        <span style={{ width: 100 }}>Qty</span>
+        <span className="col">Symbol</span>
+        <span className="col">Price</span>
+        <span className="col">Qty</span>
       </div>
 
-      {orders.length === 0 ? (
-        <p style={{ color: "gray" }}>No orders match filter.</p>
-      ) : (
-        orders.map((order) => (
-          <div key={order.sym} className="order-row">
-            <span style={{ width: 100 }}>{order.sym}</span>
-            <span style={{ width: 100, color: order.price < 0 ? "red" : "green", fontWeight: "bold" }}>
-              {order.price}
-            </span>
-            <span style={{ width: 100 }}>{order.quantity}</span>
-          </div>
-        ))
-      )}
+      {/* Scroll Container using CSS class */}
+      <div className="scroll-container">
+        {orders.length === 0 ? (
+          <p style={{ color: "gray", padding: "10px" }}>No orders match filter.</p>
+        ) : (
+          orders.map((order) => (
+            <div key={order.sym} className="order-row">
+              <span className="col">{order.sym}</span>
+              
+              {/* Dynamic Class Name Logic */}
+              <span className={`col ${order.price < 0 ? "text-red" : "text-green"}`}>
+                {order.price}
+              </span>
+              
+              <span className="col">{order.quantity}</span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
 
 // --- MAIN COMPONENT ---
 export default function App() {
-  const [dummyOrders, setDummyOrders] = useState([
-    { sym: "AAPL", price: 150.25, quantity: 100 },
-    { sym: "TSLA", price: -12.50, quantity: 50 },
-    { sym: "MSFT", price: 310.00, quantity: 10 },
-    { sym: "GOOG", price: -5.00, quantity: 200 },
-    { sym: "AMZN", price: 105.00, quantity: 20 }
-  ]);
-
+  const [dummyOrders] = useState(generateData());
   const [showLargeOnly, setShowLargeOnly] = useState(false);
 
   const visibleOrders = showLargeOnly
-    ? dummyOrders.filter((order) => order.quantity > 50)
+    ? dummyOrders.filter((order) => order.quantity > 250)
     : dummyOrders;
 
   return (
@@ -52,9 +66,10 @@ export default function App() {
           onClick={() => setShowLargeOnly(!showLargeOnly)}
           className={showLargeOnly ? "btn-active" : "btn-inactive"}
         >
-          {showLargeOnly ? "Show All Orders" : "Show Large Orders Only (>50)"}
+          {showLargeOnly ? "Show All Orders" : "Show Large Orders Only (>250)"}
         </button>
       </div>
+      
       <OrderBook orders={visibleOrders} />
     </div>
   );

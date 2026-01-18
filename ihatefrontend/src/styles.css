@@ -38,3 +38,19 @@ button {
 .btn-inactive {
   background-color: gray;
 }
+
+/* New: Fixed width for columns so they align */
+.col {
+  width: 100px;
+}
+
+/* New: The scrolling box */
+.scroll-container {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid #eee; /* Optional visual border for the list area */
+}
+
+/* New: Dynamic text colors */
+.text-green { color: green; }
+.text-red   { color: red; }
