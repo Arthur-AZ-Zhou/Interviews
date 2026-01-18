@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import './styles.css'; 
 
 // --- HELPER: Generate Data ---
 const generateData = () => {
   const data = [];
+
   for (let i = 0; i < 50; i++) {
     data.push({
       sym: `STK-${i + 100}`,
@@ -11,6 +12,7 @@ const generateData = () => {
       quantity: Math.floor(Math.random() * 500)
     });
   }
+  
   return data;
 };
 
