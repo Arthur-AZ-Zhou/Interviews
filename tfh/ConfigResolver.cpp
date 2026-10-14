@@ -1,94 +1,113 @@
 #include <bits/stdc++.h>
-#include <iostream>
 #include <optional>
 
 using namespace std;
 
 class ConfigResolver {
 private:
-    unordered_set<string> visited; 
+    optional<string> resolveHelper(
+        const unordered_map<string, string>& config,
+        const string& key,
+        unordered_set<string>& resolving
+    ) {
+        auto configIt = config.find(key);
 
-public:
-    ConfigResolver() {}
-
-    optional<string> resolveValue(const unordered_map<string, string>& config, const string& key) {
-        if (config.find(key) == config.end()) {
+        if (configIt == config.end()) {
             return nullopt;
         }
 
-        string resolvedStr = "";
-        int i = 0;
+        // This key is already in the current recursion path.
+        if (resolving.find(key) != resolving.end()) {
+            return nullopt;
+        }
 
-        const string& value = config.at(key);
+        resolving.insert(key);
+
+        const string& value = configIt->second;
+        string resolved;
+        size_t i = 0;
 
         while (i < value.length()) {
-            if (value[i] != '$' || value.length() <= i + 1 || value[i + 1] != '{') {
-                resolvedStr += value[i];
+            // Ordinary character, or '$' not followed by '{'.
+            if (value[i] != '$' || i + 1 >= value.length() || value[i + 1] != '{') {
+                resolved += value[i];
                 i++;
                 continue;
             }
 
-            int closeBrace = value.find('}', i + 2); // first instance of } in string
+            size_t closeBrace = value.find('}', i + 2);
 
             if (closeBrace == string::npos) {
+                resolving.erase(key);
                 return nullopt;
             }
 
-            string newKey = value.substr(i + 2, closeBrace - i - 2);
+            string referencedKey = value.substr(
+                i + 2,
+                closeBrace - (i + 2)
+            );
 
-            cout << "newKey detected: " << newKey << endl;
-
-            if (visited.find(newKey) != visited.end()) {
+            if (referencedKey.empty()) {
+                resolving.erase(key);
                 return nullopt;
             }
 
-            cout << "made it past here" << endl;
-            visited.insert(newKey);
+            optional<string> referencedValue = resolveHelper(config, referencedKey, resolving);
 
-            cout << "visited set: =============" << endl; 
-            for (auto i : visited) {
-                cout << i << " ";
-            }
-            cout << "\nend of visited set ===========" << endl;
-
-            optional<string> configVal = resolveValue(config, newKey);
-            cout << "found configVal: " << configVal.value_or("nullopt") << endl;
-
-            if (!configVal.has_value()) {
+            if (!referencedValue.has_value()) {
+                resolving.erase(key);
                 return nullopt;
             }
 
-            resolvedStr += configVal.value();
+            resolved += referencedValue.value();
             i = closeBrace + 1;
-            visited.erase(newKey);
         }
 
-        return resolvedStr;
+        // Remove it because this recursion branch is finished.
+        resolving.erase(key);
+        return resolved;
     }
 
+public:
+    optional<string> resolveValue(
+        const unordered_map<string, string>& config,
+        const string& key
+    ) {
+        unordered_set<string> resolving;
+        return resolveHelper(config, key, resolving);
+    }
 };
 
 int main() {
-    // unordered_map<string, string> config = {
-    //     {"HOST", "localhost"},
-    //     {"PORT", "8080"},
-    //     {"URL", "http://${HOST}:${PORT}/api"}
-    // };
-
-    ConfigResolver CR;
-
-    // cout << CR.resolveValue(config, "HOST").value_or("nullopt") << endl;
-    // cout << CR.resolveValue(config, "MISSING").value_or("nullopt") << endl;
-    // cout << CR.resolveValue(config, "URL").value_or("nullopt") << endl;
+    ConfigResolver resolver;
 
     unordered_map<string, string> config = {
         {"A", "${B}"},
         {"B", "${C}"},
         {"C", "${A}"},
         {"HOST", "localhost"},
+        {"PORT", "8080"},
+        {"URL", "http://${HOST}:${PORT}/api"},
         {"PAIR", "${HOST}:${HOST}"},
+        {"SELF", "${SELF}"},
+        {"BROKEN", "${HOST"}
     };
 
-    cout << CR.resolveValue(config, "A").value_or("nullopt") << endl;
-    cout << CR.resolveValue(config, "PAIR").value_or("nullopt") << endl;
+    cout << resolver.resolveValue(config, "A").value_or("nullopt")
+         << endl; // nullopt: indirect cycle
+
+    cout << resolver.resolveValue(config, "PAIR").value_or("nullopt")
+         << endl; // localhost:localhost
+
+    cout << resolver.resolveValue(config, "URL").value_or("nullopt")
+         << endl; // http://localhost:8080/api
+
+    cout << resolver.resolveValue(config, "SELF").value_or("nullopt")
+         << endl; // nullopt: direct cycle
+
+    cout << resolver.resolveValue(config, "BROKEN").value_or("nullopt")
+         << endl; // nullopt: missing closing brace
+
+    cout << resolver.resolveValue(config, "MISSING").value_or("nullopt")
+         << endl; // nullopt
 }

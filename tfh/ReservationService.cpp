@@ -21,21 +21,63 @@ Aim for O(logN) booking time, where N is the number of reservations in that room
 class ReservationService {
 private:
     unordered_map<string, map<long long, long long>> roomBookings;
+    unordered_set<string> reservationIds; //globally unique reservation IDs
 
 public:
     ReservationService() {}
 
     bool addRoom(const string& roomId) {
+        if (roomId.empty() || roomBookings.find(roomId) != roomBookings.end()) {
+            return false;
+        }
 
+        roomBookings[roomId] = {};
+        return true;
     }
 
     bool book(
-        const string& reservation, 
+        const string& reservationId, 
         const string& roomId, 
         long long startTime, 
         long long endTime
     ) {
-        
+        if (reservationId.empty() ||
+            reservationIds.find(reservationId) != reservationIds.end() ||
+            startTime < 0 ||
+            startTime >= endTime
+        ) {
+            return false;
+        }
+
+        auto roomIt = roomBookings.find(roomId);
+
+        if (roomIt == roomBookings.end()) {
+            return false;
+        }
+
+        auto& bookings = roomIt->second;
+
+        // First reservation whose start time is >= the new start time.
+        auto next = bookings.lower_bound(startTime);
+
+        // Check overlap with the next reservation.
+        if (next != bookings.end() && next->first < endTime) {
+            return false;
+        }
+
+        // Check overlap with the previous reservation.
+        if (next != bookings.begin()) {
+            auto previous = prev(next);
+
+            if (previous->second > startTime) {
+                return false;
+            }
+        }
+
+        bookings[startTime] = endTime;
+        reservationIds.insert(reservationId);
+
+        return true;
     }
 };
 
