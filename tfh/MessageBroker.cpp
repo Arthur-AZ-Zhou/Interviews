@@ -19,15 +19,22 @@ private:
     unordered_map<string, unordered_set<string>> consumerSubMap; //consumerId -> current subscriptions
     unordered_map<string, unordered_set<string>> subConsumerMap; //sub topics -> consumerIds
     unordered_map<string, queue<Message>> consumerMQ; //consumerId -> message queue
+    unordered_map<string, vector<Message>> consumerDLQ; //consumerId -> their dlq
+    unordered_map<string, Message> inFlightMap; //consumerId -> in flight message
+    unordered_map<string, unordered_map<string, int>> consumerAttempts; //consumerId -> messageId -> num tries
     unordered_set<string> messageIDSet; //ensure messageID global unique
+    int maxAttempts;
 
 public:
-    MessageBroker() {}
+    MessageBroker(int maxDeliveryAttempts) {
+        if (maxDeliveryAttempts <= 0) {
+            throw invalid_argument("maxDeliveryAttempts must be positive");
+        }
 
-    bool subscribe(
-        const string& consumerId,
-        const string& topic
-    ) {
+        maxAttempts = maxDeliveryAttempts;
+    }
+
+    bool subscribe(const string& consumerId, const string& topic) {
         if (consumerId.empty() || topic.empty()) {
             return false;
         }
@@ -63,57 +70,107 @@ public:
     }
 
     optional<Message> poll(const string& consumerId) {
-        if (consumerSubMap.find(consumerId) == consumerSubMap.end() || consumerMQ[consumerId].empty()) {
+        if (consumerSubMap.find(consumerId) == consumerSubMap.end() 
+            || (consumerMQ[consumerId].empty() 
+                && inFlightMap.find(consumerId) == inFlightMap.end())
+        ) {
             return nullopt;
+        }
+
+        if (inFlightMap.find(consumerId) != inFlightMap.end()) {
+            return inFlightMap[consumerId];
         }
 
         Message m = consumerMQ[consumerId].front();
         consumerMQ[consumerId].pop();
+        inFlightMap[consumerId] = m;
+        consumerAttempts[consumerId][m.messageId]++;
         return m;
+    }
+
+    bool acknowledge(const string& consumerId, const string& messageId) {
+        if (consumerMQ.find(consumerId) == consumerMQ.end() 
+            || inFlightMap.find(consumerId) == inFlightMap.end() 
+            || inFlightMap[consumerId].messageId != messageId
+        ) {
+            return false;
+        }
+
+        inFlightMap.erase(consumerId);
+        consumerAttempts[consumerId].erase(messageId);
+        return true;
+    }
+
+    bool reject(const string& consumerId, const string& messageId) {
+        if (consumerId.empty() 
+            || messageId.empty() 
+            || consumerMQ.find(consumerId) == consumerMQ.end() 
+        ) {
+            return false;
+        }
+
+        auto inFlightIt = inFlightMap.find(consumerId);
+
+        if (inFlightIt == inFlightMap.end() || inFlightIt->second.messageId != messageId) {
+            return false;
+        }
+
+        const Message message = inFlightIt->second;
+        int attempts = consumerAttempts[consumerId][messageId];
+
+        if (attempts < maxAttempts) {
+            consumerMQ[consumerId].push(message);
+        } else {
+            consumerDLQ[consumerId].push_back(message);
+            consumerAttempts[consumerId].erase(messageId);
+        }
+
+        inFlightMap.erase(inFlightIt);
+        return true;
+    }
+
+    vector<Message> getDeadLetters(const string& consumerId) const {
+        if (consumerDLQ.find(consumerId) == consumerDLQ.end()) {
+            return {};
+        }
+
+        return consumerDLQ.at(consumerId);
     }
 };
 
 int main() {
-    MessageBroker broker;
+    MessageBroker broker(3);
 
-    cout << broker.subscribe("alice", "security") << endl; // 1
-    cout << broker.subscribe("bob", "security") << endl;   // 1
-    cout << broker.subscribe("alice", "deploys") << endl;  // 1
-    cout << broker.subscribe("alice", "security") << endl; // 0
+    broker.subscribe("alice", "security");
+    broker.subscribe("bob", "security");
 
-    cout << broker.publish({
-        "m1", "security", "login failed"
-    }) << endl; // 1
+    broker.publish({"m1", "security", "login failed"});
 
-    cout << broker.publish({
-        "m2", "deploys", "version 2 deployed"
-    }) << endl; // 1
+    // Alice fails all three attempts.
+    cout << broker.poll("alice")->messageId << endl;       // m1, attempt 1
+    cout << broker.reject("alice", "m1") << endl;          // 1
 
-    cout << broker.publish({
-        "m1", "security", "different payload"
-    }) << endl; // 0: duplicate message ID
+    cout << broker.poll("alice")->messageId << endl;       // m1, attempt 2
+    cout << broker.reject("alice", "m1") << endl;          // 1
 
-    auto alice1 = broker.poll("alice");
-    cout << alice1.value().messageId << endl; // m1
+    cout << broker.poll("alice")->messageId << endl;       // m1, attempt 3
+    cout << broker.reject("alice", "m1") << endl;          // 1, dead-lettered
 
-    auto alice2 = broker.poll("alice");
-    cout << alice2.value().messageId << endl; // m2
+    cout << broker.poll("alice").has_value() << endl;      // 0
 
-    cout << broker.poll("alice").has_value() << endl; // 0
+    auto aliceDeadLetters = broker.getDeadLetters("alice");
+    cout << aliceDeadLetters.size() << endl;               // 1
+    cout << aliceDeadLetters[0].messageId << endl;         // m1
 
-    auto bob1 = broker.poll("bob");
-    cout << bob1.value().messageId << endl; // m1
+    // Bob processes his independent copy successfully.
+    cout << broker.poll("bob")->messageId << endl;         // m1
+    cout << broker.acknowledge("bob", "m1") << endl;       // 1
+    cout << broker.getDeadLetters("bob").size() << endl;   // 0
 
-    cout << broker.subscribe("charlie", "security") << endl; // 1
-    cout << broker.poll("charlie").has_value() << endl;      // 0
-
-    cout << broker.publish({
-        "m3", "security", "account locked"
-    }) << endl; // 1
-
-    cout << broker.poll("charlie").value().messageId << endl; // m3
-
-    cout << broker.publish({
-        "", "security", "invalid"
-    }) << endl; // 0
+    cout << broker.reject("alice", "m1") << endl;          // 0
+    cout << broker.reject("unknown", "m1") << endl;        // 0
+    
+    //regression test
+    cout << broker.reject("alice", "m1") << endl;     // 0
+    cout << broker.poll("alice").has_value() << endl; // must remain 0
 }
